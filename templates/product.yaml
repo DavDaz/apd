@@ -1,0 +1,26 @@
+id: product
+name: Product Decomposition
+description: Guide a new product idea into AI-ready project context.
+version: 1
+aliases: [product-decomposition, new-product]
+sections:
+  - id: problem
+    title: Problem
+    required: true
+    description: Describe the current pain or need.
+    help: Describe the friction before the solution. Name who is affected and what consequence makes the problem worth solving.
+    example: Small teams capture client requirements in scattered chats, so important constraints are lost before implementation starts.
+    questions:
+      - What is happening today?
+      - Who is affected?
+    context_keys: [context]
+  - id: goal
+    title: Goal
+    required: true
+    description: Define the outcome this product should achieve.
+    help: Describe the result users should get after the product succeeds. Prefer observable outcomes over feature lists.
+    example: A builder can turn a rough idea into a clear, editable product brief and AI-ready implementation context in one terminal session.
+    questions:
+      - What result should the product create?
+      - How will success be recognized?
+    context_keys: [goals]

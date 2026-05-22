@@ -1,0 +1,16 @@
+id: task
+name: Technical Task Pack
+description: Prepare a technical task with context and done criteria.
+version: 1
+aliases: [technical-task, task-pack]
+sections:
+  - id: objective
+    title: Objective
+    required: true
+    description: Define the technical outcome.
+    help: State the concrete engineering result, important constraints, and how someone can verify the work is done.
+    example: Add server-side validation for uploaded CSV files and return row-level errors without changing the existing import API.
+    questions:
+      - What should be built?
+      - How will it be verified?
+    context_keys: [goals, tasks]

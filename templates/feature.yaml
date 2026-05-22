@@ -1,0 +1,16 @@
+id: feature
+name: Feature Spec
+description: Specify one feature with flows and acceptance criteria.
+version: 1
+aliases: [feature-spec]
+sections:
+  - id: feature-summary
+    title: Feature Summary
+    required: true
+    description: Describe the feature and who benefits.
+    help: Explain the user-visible capability, the primary actor, and the expected outcome. Keep edge cases for later sections.
+    example: Project admins can invite teammates by email so a new workspace can be staffed without manual account setup.
+    questions:
+      - What is the feature?
+      - What outcome is expected?
+    context_keys: [context, goals]

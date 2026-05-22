@@ -1,0 +1,45 @@
+strict_tdd: false
+context: |
+  apd is a Go CLI project for guided, AI-ready product documentation.
+  Go module detected after SDD apply for introduce-guided-document-cli.
+  Strict TDD remains disabled; use the configured Go test and vet commands for verification.
+rules:
+  proposal:
+    require_problem_statement: true
+  spec:
+    require_acceptance_criteria: true
+  design:
+    require_tradeoffs: true
+  tasks:
+    protect_review_workload: true
+  apply:
+    test_command: "go test ./..."
+  verify:
+    test_command: "go test ./..."
+testing:
+  detected: "2026-05-22"
+  runner:
+    command: "go test ./..."
+    framework: "go test"
+  layers:
+    unit: "go test ./..."
+    integration: ""
+    e2e: ""
+  commands:
+    unit:
+      - "go test ./..."
+    integration: []
+    e2e: []
+  coverage:
+    command: ""
+    commands: []
+quality:
+  lint: "go vet ./..."
+  lint_commands:
+    - "go vet ./..."
+  typecheck: "go test ./..."
+  typecheck_commands:
+    - "go test ./..."
+  format: "gofmt"
+  format_commands:
+    - "gofmt -w $(find . -name '*.go' -not -path './.git/*')"

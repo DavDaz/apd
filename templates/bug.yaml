@@ -1,0 +1,16 @@
+id: bug
+name: Bug / Issue Analysis
+description: Analyze an observed problem and evidence for a fix.
+version: 1
+aliases: [issue, bug-analysis]
+sections:
+  - id: observed-behavior
+    title: Observed Behavior
+    required: true
+    description: Describe what is happening now.
+    help: Focus on observable facts before proposing a fix. Include the action, screen, command, or condition that exposed the problem.
+    example: The import command exits with an empty error message after selecting a CSV file with duplicate headers.
+    questions:
+      - What happened?
+      - Where did it happen?
+    context_keys: [context]

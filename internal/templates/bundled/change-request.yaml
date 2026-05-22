@@ -1,0 +1,16 @@
+id: change-request
+name: Change Request
+description: Document a requested change to an existing system.
+version: 1
+aliases: [change, cr]
+sections:
+  - id: requested-change
+    title: Requested Change
+    required: true
+    description: Describe the requested change and affected context.
+    help: State the current behavior, the requested behavior, and who needs the change. Avoid implementation details unless they are constraints.
+    example: Finance users need invoice exports to include the tax ID column because the current file requires manual reconciliation.
+    questions:
+      - What should change?
+      - Who is affected?
+    context_keys: [context, goals]
