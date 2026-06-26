@@ -3,10 +3,12 @@ package app
 import (
 	"bytes"
 	"fmt"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
 
+	apdcli "apd/internal/cli"
 	"apd/internal/document"
 	"apd/internal/templates"
 )
@@ -106,6 +108,141 @@ func TestRunNewDocumentExportFailureLeavesSessionSaved(t *testing.T) {
 	}
 }
 
+func TestRunNewDocumentModeSelectionAndEnvFallback(t *testing.T) {
+	tests := []struct {
+		name    string
+		mode    UIMode
+		env     string
+		tty     map[int]bool
+		wantTUI bool
+		wantErr string
+	}{
+		{name: "auto uses cli when tty missing", mode: ModeAuto, tty: map[int]bool{1: true}, wantTUI: false},
+		{name: "auto uses tui when both tty", mode: ModeAuto, tty: map[int]bool{1: true, 2: true}, wantTUI: true},
+		{name: "env disables tui with off", mode: ModeAuto, env: "off", tty: map[int]bool{1: true, 2: true}, wantTUI: false},
+		{name: "env disables tui with false", mode: ModeAuto, env: "false", tty: map[int]bool{1: true, 2: true}, wantTUI: false},
+		{name: "env disables tui with zero", mode: ModeAuto, env: "0", tty: map[int]bool{1: true, 2: true}, wantTUI: false},
+		{name: "explicit tui requires tty", mode: ModeTUI, wantErr: "interactive terminal"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("APD_TUI", tc.env)
+			store := &fakeStore{}
+			tuiCalled := false
+			err := RunNewDocument([]string{"product"}, NewDocumentConfig{
+				Registry: testRegistry(t),
+				Input:    strings.NewReader("/done\n"),
+				Output:   &bytes.Buffer{},
+				Store:    store,
+				Exporter: &fakeExporter{},
+				Now:      testClock(),
+				Mode:     tc.mode,
+				InputFD:  1,
+				OutputFD: 2,
+				IsTerminal: func(fd int) bool {
+					return tc.tty[fd]
+				},
+				RunTUI: func(TUIRequest) error {
+					tuiCalled = true
+					return nil
+				},
+			})
+			if tc.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+					t.Fatalf("RunNewDocument() error = %v, want %q", err, tc.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("RunNewDocument() error = %v", err)
+			}
+			if tuiCalled != tc.wantTUI {
+				t.Fatalf("tuiCalled = %v, want %v", tuiCalled, tc.wantTUI)
+			}
+			if !tc.wantTUI && len(store.docs) == 0 {
+				t.Fatalf("expected cli fallback to save a session")
+			}
+		})
+	}
+}
+
+func TestGuidedWorkflowParityPreservesLongAnswers(t *testing.T) {
+	longAnswer := "first line\nsecond line"
+	cliStore, seamStore := &fakeStore{}, &fakeStore{}
+	cliExporter, seamExporter := &fakeExporter{}, &fakeExporter{}
+	if err := RunNewDocument([]string{"product"}, NewDocumentConfig{
+		Registry: testRegistry(t),
+		Input:    strings.NewReader(longAnswer + "\n\n/skip\n"),
+		Output:   &bytes.Buffer{},
+		Store:    cliStore,
+		Exporter: cliExporter,
+		Now:      testClock(),
+	}); err != nil {
+		t.Fatalf("RunNewDocument() error = %v", err)
+	}
+	workflow := NewGuidedWorkflow(mustResolveTemplate(t, testRegistry(t), "product"), seamStore, seamExporter, testClock())
+	if _, err := workflow.Apply(answerIntent(longAnswer)); err != nil {
+		t.Fatalf("Apply(answer) error = %v", err)
+	}
+	if _, err := workflow.Apply(skipIntent()); err != nil {
+		t.Fatalf("Apply(skip) error = %v", err)
+	}
+	if !reflect.DeepEqual(cliStore.docs[len(cliStore.docs)-1], seamStore.docs[len(seamStore.docs)-1]) {
+		t.Fatalf("saved documents differ\ncli:  %+v\nseam: %+v", cliStore.docs[len(cliStore.docs)-1], seamStore.docs[len(seamStore.docs)-1])
+	}
+	if !reflect.DeepEqual(cliExporter.docs[0], seamExporter.docs[0]) {
+		t.Fatalf("exported documents differ\ncli:  %+v\nseam: %+v", cliExporter.docs[0], seamExporter.docs[0])
+	}
+}
+
+func TestGuidedWorkflowCanDeferFinalizationForTUI(t *testing.T) {
+	store, exporter := &fakeStore{}, &fakeExporter{}
+	workflow := NewGuidedWorkflowWithOptions(
+		mustResolveTemplate(t, testRegistry(t), "product"),
+		store,
+		exporter,
+		testClock(),
+		GuidedWorkflowOptions{AutoFinalizeOnComplete: false},
+	)
+
+	if _, err := workflow.Apply(answerIntent("answer one")); err != nil {
+		t.Fatalf("Apply(answer) error = %v", err)
+	}
+	result, err := workflow.Apply(answerIntent("answer two"))
+	if err != nil {
+		t.Fatalf("Apply(final answer) error = %v", err)
+	}
+	if !result.ReadyForFinalize {
+		t.Fatal("ReadyForFinalize = false, want true")
+	}
+	if result.Done {
+		t.Fatal("Done = true, want false before explicit finalize")
+	}
+	if len(store.docs) != 2 {
+		t.Fatalf("Save calls = %d, want 2 before explicit finalize", len(store.docs))
+	}
+	if len(exporter.docs) != 0 {
+		t.Fatalf("Export calls = %d, want 0 before explicit finalize", len(exporter.docs))
+	}
+
+	result, err = workflow.Apply(apdcli.Intent{Kind: apdcli.IntentDone})
+	if err != nil {
+		t.Fatalf("Apply(done) error = %v", err)
+	}
+	if !result.Done {
+		t.Fatal("Done = false, want true after explicit finalize")
+	}
+	if len(exporter.docs) != 1 {
+		t.Fatalf("Export calls = %d, want 1 after explicit finalize", len(exporter.docs))
+	}
+}
+
+func answerIntent(answer string) apdcli.Intent {
+	return apdcli.Intent{Kind: apdcli.IntentAnswer, Answer: answer}
+}
+
+func skipIntent() apdcli.Intent { return apdcli.Intent{Kind: apdcli.IntentSkip} }
+
 func testRegistry(t *testing.T) *templates.Registry {
 	t.Helper()
 	reg, err := templates.NewRegistry([]templates.Template{{ID: "product", Name: "Product", Version: 1, Description: "desc", Sections: []templates.Section{{ID: "one", Title: "One", Description: "first", ContextKeys: []string{"context"}}, {ID: "two", Title: "Two", Description: "second", ContextKeys: []string{"goals"}}}}})
@@ -113,6 +250,15 @@ func testRegistry(t *testing.T) *templates.Registry {
 		t.Fatalf("NewRegistry() error = %v", err)
 	}
 	return reg
+}
+
+func mustResolveTemplate(t *testing.T, reg *templates.Registry, id string) templates.Template {
+	t.Helper()
+	tmpl, ok := reg.Resolve(id)
+	if !ok {
+		t.Fatalf("Resolve(%q) = false", id)
+	}
+	return tmpl
 }
 
 func testClock() func() time.Time {

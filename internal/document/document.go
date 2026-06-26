@@ -95,6 +95,26 @@ func (d *Document) Back() bool {
 // Complete reports whether the workflow has passed the final section.
 func (d Document) Complete() bool { return d.CurrentSectionIndex >= len(d.Sections) }
 
+// AllSectionsResolved reports whether every section is answered or explicitly skipped.
+func (d Document) AllSectionsResolved() bool {
+	for _, section := range d.Sections {
+		if section.Status == StatusPending {
+			return false
+		}
+	}
+	return true
+}
+
+// FirstPendingSectionIndex returns the first unresolved section index, or -1 when all are resolved.
+func (d Document) FirstPendingSectionIndex() int {
+	for i, section := range d.Sections {
+		if section.Status == StatusPending {
+			return i
+		}
+	}
+	return -1
+}
+
 func slug(value string) string {
 	clean := slugPattern.ReplaceAllString(strings.ToLower(strings.TrimSpace(value)), "-")
 	clean = strings.Trim(clean, "-")

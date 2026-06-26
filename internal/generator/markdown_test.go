@@ -87,6 +87,51 @@ func TestBuildContextPackDoesNotFabricateContent(t *testing.T) {
 	}
 }
 
+func TestBuildContextPackUsesBugTemplateMappings(t *testing.T) {
+	reg, err := templates.LoadDefaultRegistry()
+	if err != nil {
+		t.Fatalf("LoadDefaultRegistry() error = %v", err)
+	}
+	tmpl, ok := reg.Resolve("bug")
+	if !ok {
+		t.Fatal("Resolve(\"bug\") ok = false")
+	}
+	doc := document.NewFromTemplate(tmpl, testNow())
+	answers := []string{
+		"Import exits with no error text.",
+		"CLI prints a duplicate-header validation error.",
+		"1. Run import. 2. Select duplicate-header CSV. 3. Press Enter.",
+		"APD v0.5.1 on macOS with a Finance CSV export.",
+		"stderr: duplicate header \"email\".",
+		"Blocks finance imports for one customer and needs a release fix.",
+		"Likely regression in CSV validation error wrapping.",
+		"Show the validation error and cover the repro case with an automated test.",
+	}
+	for _, answer := range answers {
+		doc.AnswerCurrent(answer, testNow())
+	}
+	pack := BuildContextPack(doc, tmpl)
+	items := map[string]string{}
+	for _, item := range pack.Items {
+		items[item.Title] = item.Content
+	}
+	checks := map[string]string{
+		"Context":             "Import exits with no error text.\n\nAPD v0.5.1 on macOS with a Finance CSV export.\n\nstderr: duplicate header \"email\".",
+		"Goals":               "CLI prints a duplicate-header validation error.",
+		"Constraints":         "APD v0.5.1 on macOS with a Finance CSV export.\n\nBlocks finance imports for one customer and needs a release fix.",
+		"Entities":            "APD v0.5.1 on macOS with a Finance CSV export.\n\nLikely regression in CSV validation error wrapping.",
+		"Rules":               "CLI prints a duplicate-header validation error.\n\nLikely regression in CSV validation error wrapping.",
+		"Flows":               "1. Run import. 2. Select duplicate-header CSV. 3. Press Enter.",
+		"Acceptance Criteria": "Show the validation error and cover the repro case with an automated test.",
+		"Tasks":               "Show the validation error and cover the repro case with an automated test.",
+	}
+	for title, want := range checks {
+		if items[title] != want {
+			t.Fatalf("%s = %q, want %q", title, items[title], want)
+		}
+	}
+}
+
 func testTemplate() templates.Template {
 	return templates.Template{ID: "product", Name: "Product", Version: 1, Description: "desc", Sections: []templates.Section{
 		{ID: "problem", Title: "Problem", Description: "desc", ContextKeys: []string{"context"}},

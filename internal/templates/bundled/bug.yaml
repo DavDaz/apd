@@ -1,16 +1,86 @@
 id: bug
 name: Bug / Issue Analysis
-description: Analyze an observed problem and evidence for a fix.
+description: Guide a bug report into reproducible, fix-ready analysis.
 version: 1
 aliases: [issue, bug-analysis]
 sections:
   - id: observed-behavior
     title: Observed Behavior
     required: true
-    description: Describe what is happening now.
-    help: Focus on observable facts before proposing a fix. Include the action, screen, command, or condition that exposed the problem.
-    example: The import command exits with an empty error message after selecting a CSV file with duplicate headers.
+    description: Describe the problem exactly as it happens now.
+    help: Capture the user-visible symptom, trigger, and failure signal before diagnosing the cause.
+    example: After selecting a CSV with duplicate headers, `apd import` exits with no error text and no output file.
     questions:
-      - What happened?
-      - Where did it happen?
+      - What did you observe?
+      - What action or condition triggered it?
     context_keys: [context]
+  - id: expected-behavior
+    title: Expected Behavior
+    required: true
+    description: Describe the correct outcome for the same scenario.
+    help: State what should happen instead so the gap is explicit and testable.
+    example: The command should stop validation and print a clear duplicate-header error.
+    questions:
+      - What should happen instead?
+      - How would a correct result look?
+    context_keys: [goals, rules]
+  - id: steps-to-reproduce
+    title: Steps to Reproduce
+    required: true
+    description: List the shortest reliable repro flow.
+    help: Use ordered steps with inputs, data, and timing details that make the issue repeatable.
+    example: 1. Run `apd import sample.csv`. 2. Choose the duplicate-header file. 3. Press Enter. 4. Observe the empty error output.
+    questions:
+      - How can someone reproduce it reliably?
+      - What inputs or preconditions matter?
+    context_keys: [flows]
+  - id: environment-context
+    title: Environment / Context
+    required: false
+    description: Capture the execution context around the failure.
+    help: Note version, platform, dataset, account, feature flags, or surrounding state that may shape the bug.
+    example: APD v0.5.1 on macOS 14.5, local project with a Finance CSV export, no feature flags enabled.
+    questions:
+      - Where was the system running?
+      - What surrounding state matters?
+    context_keys: [context, constraints, entities]
+  - id: evidence-logs
+    title: Evidence / Logs
+    required: false
+    description: Collect the strongest supporting evidence.
+    help: Paste the exact error text, stack trace, screenshot summary, metric spike, or linked log snippet that proves the issue.
+    example: 'stderr: `parse csv: duplicate header "email"`; log line `import_id=42 validation_failed=true`.'
+    questions:
+      - What logs, errors, or screenshots support the bug?
+      - What evidence should an engineer inspect first?
+    context_keys: [context]
+  - id: impact-severity
+    title: Impact / Severity
+    required: true
+    description: Explain who is affected and how bad it is.
+    help: State the user impact, frequency, scope, and urgency so fix priority is clear.
+    example: Blocks every finance import for one customer; manual workaround takes 20 minutes per file; severity high for this release.
+    questions:
+      - Who is affected and how often?
+      - How urgent or severe is it?
+    context_keys: [constraints]
+  - id: suspected-cause
+    title: Suspected Cause
+    required: false
+    description: Capture the strongest current hypothesis.
+    help: Name the likely component, condition, or regression point if you have one. Mark unknowns instead of guessing.
+    example: Regression after the CSV validator refactor; duplicate-header errors may be wrapped and dropped before CLI output.
+    questions:
+      - What component or change might explain it?
+      - What is still unknown?
+    context_keys: [entities, rules]
+  - id: acceptance-criteria-fix
+    title: Acceptance Criteria for Fix
+    required: true
+    description: Define what must be true before closing the bug.
+    help: List the checks that prove the bug is fixed and guarded against regression.
+    example: CLI shows a duplicate-header error, import does not panic, and automated coverage includes the failing CSV case.
+    questions:
+      - What outcomes must be verified before closing?
+      - What regression check should be added?
+    context_keys: [criteria, tasks]

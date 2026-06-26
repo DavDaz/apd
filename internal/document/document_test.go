@@ -59,6 +59,35 @@ func TestBackAtFirstSectionAndHelpNoop(t *testing.T) {
 	}
 }
 
+func TestDocumentResolutionHelpers(t *testing.T) {
+	now := time.Date(2026, 5, 22, 10, 0, 0, 0, time.UTC)
+	doc := NewFromTemplate(testTemplate(), now)
+
+	if doc.AllSectionsResolved() {
+		t.Fatal("AllSectionsResolved() = true, want false for new document")
+	}
+	if got := doc.FirstPendingSectionIndex(); got != 0 {
+		t.Fatalf("FirstPendingSectionIndex() = %d, want 0", got)
+	}
+
+	if !doc.AnswerCurrent("first answer", now.Add(time.Minute)) {
+		t.Fatal("AnswerCurrent() = false")
+	}
+	if got := doc.FirstPendingSectionIndex(); got != 1 {
+		t.Fatalf("FirstPendingSectionIndex() after answer = %d, want 1", got)
+	}
+
+	if !doc.SkipCurrent(now.Add(2 * time.Minute)) {
+		t.Fatal("SkipCurrent() = false")
+	}
+	if !doc.AllSectionsResolved() {
+		t.Fatal("AllSectionsResolved() = false, want true after answer + skip")
+	}
+	if got := doc.FirstPendingSectionIndex(); got != -1 {
+		t.Fatalf("FirstPendingSectionIndex() after resolution = %d, want -1", got)
+	}
+}
+
 func testTemplate() templates.Template {
 	return templates.Template{ID: "product", Name: "Product", Version: 1, Description: "desc", Sections: []templates.Section{{ID: "one", Title: "One"}, {ID: "two", Title: "Two"}}}
 }

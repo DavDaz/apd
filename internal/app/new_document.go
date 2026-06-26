@@ -4,6 +4,7 @@ package app
 import (
 	"fmt"
 	"io"
+	"os"
 	"strings"
 	"time"
 
@@ -13,6 +14,28 @@ import (
 	"apd/internal/storage"
 	"apd/internal/templates"
 )
+
+// UIMode selects how guided authoring runs.
+type UIMode string
+
+const (
+	ModeAuto UIMode = "auto"
+	ModeTUI  UIMode = "tui"
+	ModeCLI  UIMode = "cli"
+)
+
+// TerminalChecker reports whether a file descriptor is a terminal.
+type TerminalChecker func(fd int) bool
+
+// TUIRunner executes the Bubble Tea workflow.
+type TUIRunner func(TUIRequest) error
+
+// TUIRequest contains everything needed to launch the guided TUI.
+type TUIRequest struct {
+	Registry    *templates.Registry
+	InitialType string
+	NewWorkflow func(templates.Template) *GuidedWorkflow
+}
 
 // SessionStore persists document progress.
 type SessionStore interface {
@@ -33,6 +56,11 @@ type NewDocumentConfig struct {
 	Exporter   MarkdownExporter
 	Now        func() time.Time
 	WorkingDir string
+	Mode       UIMode
+	InputFD    int
+	OutputFD   int
+	IsTerminal TerminalChecker
+	RunTUI     TUIRunner
 }
 
 // RunNewDocument starts the guided document workflow.
@@ -59,6 +87,17 @@ func RunNewDocument(args []string, cfg NewDocumentConfig) error {
 	if cfg.Exporter == nil {
 		cfg.Exporter = generator.NewFileExporter(cfg.WorkingDir)
 	}
+	mode, err := resolveUIMode(cfg)
+	if err != nil {
+		return err
+	}
+	if mode == ModeTUI {
+		return runNewDocumentTUI(args, cfg)
+	}
+	return runNewDocumentCLI(args, cfg)
+}
+
+func runNewDocumentCLI(args []string, cfg NewDocumentConfig) error {
 	input := apdcli.NewInput(cfg.Input)
 	selected := ""
 	if len(args) == 0 {
@@ -74,9 +113,9 @@ func RunNewDocument(args []string, cfg NewDocumentConfig) error {
 	if !ok {
 		return fmt.Errorf("unsupported document type %q; supported types: %s", selected, strings.Join(cfg.Registry.SupportedTypes(), ", "))
 	}
-	doc := document.NewFromTemplate(tmpl, cfg.Now())
-	var sessionPath string
-	for !doc.Complete() {
+	workflow := NewGuidedWorkflow(tmpl, cfg.Store, cfg.Exporter, cfg.Now)
+	for !workflow.Document().Complete() {
+		doc := workflow.Document()
 		idx := doc.CurrentSectionIndex
 		if err := apdcli.RenderSection(cfg.Output, tmpl.Sections[idx], idx, len(tmpl.Sections)); err != nil {
 			return err
@@ -85,53 +124,85 @@ func RunNewDocument(args []string, cfg NewDocumentConfig) error {
 		if err != nil {
 			return err
 		}
-		switch intent.Kind {
-		case apdcli.IntentHelp:
+		result, err := workflow.Apply(intent)
+		if err != nil {
+			return err
+		}
+		if result.ShowHelp {
 			if err := apdcli.RenderHelp(cfg.Output, tmpl.Sections[idx]); err != nil {
 				return err
 			}
-		case apdcli.IntentBack:
-			if !doc.Back() {
-				fmt.Fprintln(cfg.Output, "Already at the first section.")
-			}
-		case apdcli.IntentSkip:
-			doc.SkipCurrent(cfg.Now())
-			path, err := cfg.Store.Save(doc)
-			if err != nil {
-				return err
-			}
-			sessionPath = path
-		case apdcli.IntentDone:
-			return finalizeDocument(cfg.Output, cfg.Store, cfg.Exporter, doc, tmpl)
-		case apdcli.IntentAnswer:
-			doc.AnswerCurrent(intent.Answer, cfg.Now())
-			path, err := cfg.Store.Save(doc)
-			if err != nil {
-				return err
-			}
-			sessionPath = path
+		}
+		if result.Message != "" {
+			fmt.Fprintln(cfg.Output, result.Message)
+		}
+		if result.Done {
+			return printWorkflowResult(cfg.Output, result)
 		}
 	}
-	return printFinalPaths(cfg.Output, cfg.Exporter, doc, tmpl, sessionPath)
+	return nil
 }
 
-func finalizeDocument(out io.Writer, store SessionStore, exporter MarkdownExporter, doc document.Document, tmpl templates.Template) error {
-	sessionPath, err := store.Save(doc)
-	if err != nil {
-		return err
+func runNewDocumentTUI(args []string, cfg NewDocumentConfig) error {
+	if cfg.RunTUI == nil {
+		return fmt.Errorf("tui runner is required")
 	}
-	return printFinalPaths(out, exporter, doc, tmpl, sessionPath)
+	selected := ""
+	if len(args) == 1 {
+		selected = args[0]
+		if _, ok := cfg.Registry.Resolve(selected); !ok {
+			return fmt.Errorf("unsupported document type %q; supported types: %s", selected, strings.Join(cfg.Registry.SupportedTypes(), ", "))
+		}
+	}
+	return cfg.RunTUI(TUIRequest{
+		Registry:    cfg.Registry,
+		InitialType: selected,
+		NewWorkflow: func(tmpl templates.Template) *GuidedWorkflow {
+			return NewGuidedWorkflowWithOptions(tmpl, cfg.Store, cfg.Exporter, cfg.Now, GuidedWorkflowOptions{AutoFinalizeOnComplete: false})
+		},
+	})
 }
 
-func printFinalPaths(out io.Writer, exporter MarkdownExporter, doc document.Document, tmpl templates.Template, sessionPath string) error {
-	markdownPath, err := exporter.Write(doc, tmpl)
-	if err != nil {
-		return err
+func resolveUIMode(cfg NewDocumentConfig) (UIMode, error) {
+	if tuiDisabledFromEnv() {
+		return ModeCLI, nil
 	}
+	mode := cfg.Mode
+	if mode == "" {
+		mode = ModeAuto
+	}
+	switch mode {
+	case ModeCLI:
+		return ModeCLI, nil
+	case ModeAuto:
+		if cfg.IsTerminal != nil && cfg.IsTerminal(cfg.InputFD) && cfg.IsTerminal(cfg.OutputFD) {
+			return ModeTUI, nil
+		}
+		return ModeCLI, nil
+	case ModeTUI:
+		if cfg.IsTerminal == nil || !cfg.IsTerminal(cfg.InputFD) || !cfg.IsTerminal(cfg.OutputFD) {
+			return "", fmt.Errorf("tui mode requires interactive terminal input and output")
+		}
+		return ModeTUI, nil
+	default:
+		return "", fmt.Errorf("unsupported ui mode %q", mode)
+	}
+}
+
+func tuiDisabledFromEnv() bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("APD_TUI"))) {
+	case "0", "false", "off":
+		return true
+	default:
+		return false
+	}
+}
+
+func printWorkflowResult(out io.Writer, result WorkflowResult) error {
 	fmt.Fprintln(out, "Document generated.")
-	fmt.Fprintf(out, "Markdown: %s\n", markdownPath)
-	if sessionPath != "" {
-		fmt.Fprintf(out, "Session: %s\n", sessionPath)
+	fmt.Fprintf(out, "Markdown: %s\n", result.MarkdownPath)
+	if result.SessionPath != "" {
+		fmt.Fprintf(out, "Session: %s\n", result.SessionPath)
 	}
 	return nil
 }
