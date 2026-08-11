@@ -4,6 +4,20 @@
 
 It does **not** call an AI model. It guides your thinking, saves progress locally, and generates clean files you can edit or paste into your coding agent.
 
+## Guided wiki
+
+Open a local wiki workspace with a clear next action instead of memorizing a workflow:
+
+```bash
+go run . wiki ./project-wiki
+```
+
+In an interactive terminal, `apd wiki` opens a dashboard. For an absent workspace, press `i` to explicitly initialize it; APD never overwrites an existing directory. Once initialized, press `r` to register a local source: enter a readable file path within the workspace's parent directory, then optional notes or emphasis for a later integrator. APD copies the source unchanged and records its provenance. At `registered`, press `p` to prepare a request by naming at least one path under `wiki/`; APD validates and records that target but never edits it. At `request-ready`, press `e` to emit the deterministic integration request. The resulting `awaiting-external-semantic-integration` view gives its path and instructs an external agent to perform the semantic work. Escape cancels either form without changes.
+
+When stdout or stdin is not a terminal, `apd wiki` prints the same deterministic status snapshot and does not initialize or otherwise mutate an existing workspace. The workspace argument is the explicit local target; without one, APD inspects the current directory.
+
+APD owns only the local workspace, immutable source copies, and handoff material. Query, recall, semantic edits, contradiction resolution, and integration are external-agent responsibilities. A status of `awaiting-external-semantic-integration` means that work is still pending, never complete or integrated.
+
 ## Quick start
 
 ### 1. Run the CLI
